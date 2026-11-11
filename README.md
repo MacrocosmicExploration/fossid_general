@@ -5,8 +5,8 @@ let
         Source,
         {
             {"EMPLOYEE_ID", type text},
-            {"HIRE_DATE", type date},
-            {"TERMINATION_DATE", type date}
+            {"HIRE_DATE", type nullable date},
+            {"TERMINATION_DATE", type nullable date}
         },
         "en-US"
     ),
@@ -27,6 +27,9 @@ let
         each [EMPLOYEE_ID] <> null and [EMPLOYEE_ID] <> ""
     ),
 
+    UniqueRows = Table.Distinct(ValidIDs),
+    SourceColumns = Table.ColumnNames(UniqueRows),
+
     SelectAssignment = (Rows as table) as record =>
         let
             OpenAssignments = Table.SelectRows(
@@ -35,44 +38,98 @@ let
             ),
 
             OpenCount = Table.RowCount(OpenAssignments),
+            HireDates = Rows[HIRE_DATE],
 
-            Selected =
-                if OpenCount = 1 then
-                    OpenAssignments{0}
-                else if OpenCount > 1 then
-                    error "Multiple open assignments for employee "
-                        & Rows{0}[EMPLOYEE_ID]
+            // Missing or placeholder dates cannot establish recency.
+            DatesUsable =
+                not List.Contains(HireDates, null)
+                and not List.Contains(HireDates, #date(1900, 1, 1)),
+
+            // Multiple open assignments remain unresolved.
+            // When all assignments are closed, use the latest
+            // hire date only if every row has a usable date.
+            Candidates =
+                if OpenCount > 0 then
+                    OpenAssignments
                 else if Table.RowCount(Rows) = 1 then
-                    Rows{0}
-                else
+                    Rows
+                else if DatesUsable then
                     let
-                        MissingHireDates = Table.SelectRows(
-                            Rows,
-                            each [HIRE_DATE] = null
-                        ),
-
-                        LatestHire =
-                            if Table.RowCount(MissingHireDates) > 0 then
-                                error "Missing hire date for employee "
-                                    & Rows{0}[EMPLOYEE_ID]
-                            else
-                                List.Max(Rows[HIRE_DATE]),
-
-                        LatestRows = Table.SelectRows(
+                        LatestHire = List.Max(HireDates)
+                    in
+                        Table.SelectRows(
                             Rows,
                             each [HIRE_DATE] = LatestHire
                         )
-                    in
-                        if Table.RowCount(LatestRows) = 1 then
-                            LatestRows{0}
-                        else
-                            error "Tied latest assignments for employee "
-                                & Rows{0}[EMPLOYEE_ID]
+                else
+                    Rows,
+
+            NeedsReview = Table.RowCount(Candidates) > 1,
+
+            ConflictColumns =
+                if NeedsReview then
+                    List.Select(
+                        SourceColumns,
+                        (ColumnName) =>
+                            List.Count(
+                                List.Distinct(
+                                    Table.Column(Candidates, ColumnName)
+                                )
+                            ) > 1
+                    )
+                else
+                    {},
+
+            // Keep only values shared by every candidate.
+            // A blank versus a populated value also counts
+            // as a conflict.
+            EmployeeRecord =
+                if not NeedsReview then
+                    Candidates{0}
+                else
+                    Record.FromList(
+                        List.Transform(
+                            SourceColumns,
+                            (ColumnName) =>
+                                let
+                                    Values = List.Distinct(
+                                        Table.Column(
+                                            Candidates,
+                                            ColumnName
+                                        )
+                                    )
+                                in
+                                    if List.Count(Values) = 1 then
+                                        Values{0}
+                                    else
+                                        null
+                        ),
+                        SourceColumns
+                    ),
+
+            ResultRecord = Record.Combine(
+                {
+                    EmployeeRecord,
+                    [
+                        EmployeeMappingStatus =
+                            if NeedsReview then
+                                "Needs review"
+                            else
+                                "Selected",
+
+                        EmployeeMappingConflicts =
+                            if NeedsReview then
+                                Text.Combine(ConflictColumns, ", ")
+                            else
+                                null
+                    ]
+                }
+            )
         in
-            Selected,
+            ResultRecord,
 
     Grouped = Table.Group(
-        ValidIDs,
+        UniqueRows,
         {"EMPLOYEE_ID"},
         {
             {
@@ -83,9 +140,22 @@ let
         }
     ),
 
+    // Preserve the source column types and add review fields.
+    OutputTemplate = Table.AddColumn(
+        Table.AddColumn(
+            Table.FirstN(UniqueRows, 0),
+            "EmployeeMappingStatus",
+            each null,
+            type nullable text
+        ),
+        "EmployeeMappingConflicts",
+        each null,
+        type nullable text
+    ),
+
     Result = Table.FromRecords(
         Grouped[SelectedAssignment],
-        Value.Type(ValidIDs)
+        Value.Type(OutputTemplate)
     )
 in
     Result
