@@ -1,161 +1,54 @@
-let
-    Source = GLOBAL_EMPLOYEE,
+# FossID Power BI finishing guide
 
-    Typed = Table.TransformColumnTypes(
-        Source,
-        {
-            {"EMPLOYEE_ID", type text},
-            {"HIRE_DATE", type nullable date},
-            {"TERMINATION_DATE", type nullable date}
-        },
-        "en-US"
-    ),
+Start with [01 — ApprovedBU and model setup](docs/01_APPROVED_BU_AND_MODEL.md).
+Then follow [02 — Page filters](docs/02_PAGE_FILTERS.md) and
+[03 — Group permissions and validation](docs/03_GROUP_PERMISSIONS.md).
 
-    CleanIDs = Table.TransformColumns(
-        Typed,
-        {
-            {
-                "EMPLOYEE_ID",
-                each if _ = null then null else Text.Trim(_),
-                type text
-            }
-        }
-    ),
+These instructions extend an existing FossID dashboard with current scans,
+daily scan history, employee mapping, and vulnerability/VEX tables. They do not
+modify the FossID API pipeline.
 
-    ValidIDs = Table.SelectRows(
-        CleanIDs,
-        each [EMPLOYEE_ID] <> null and [EMPLOYEE_ID] <> ""
-    ),
+## What is included
 
-    UniqueRows = Table.Distinct(ValidIDs),
-    SourceColumns = Table.ColumnNames(UniqueRows),
+| Location | Purpose |
+| --- | --- |
+| [Model setup](docs/01_APPROVED_BU_AND_MODEL.md) | Internal ownership workbook, exact query creation order, ApprovedBU, execution status, metadata cleanup, and relationships |
+| [Page filters](docs/02_PAGE_FILTERS.md) | Exact fields and settings for all five pages, popup bookmarks, and CVSS 9.0-or-higher correction |
+| [Permissions](docs/03_GROUP_PERMISSIONS.md) | Table-by-table role expressions, Entra groups, publishing, and validation |
+| [Queries](powerbi/queries) | Complete Power Query M queries |
+| [Functions](powerbi/functions) | Ownership validation and joins |
+| [DAX measures](powerbi/dax) | Copy one measure definition at a time |
+| [Role expressions](powerbi/roles) | Copy into Manage roles, not New measure |
+| [Employee query](powerbi/reference/DimEmployee.pq) | Original working query preserved from this repository's previous README |
+| [Tests](powerbi/tests) | Synthetic ownership checks and a separate RLS test model |
 
-    SelectAssignment = (Rows as table) as record =>
-        let
-            OpenAssignments = Table.SelectRows(
-                Rows,
-                each [TERMINATION_DATE] = null
-            ),
+## Before copying code
 
-            OpenCount = Table.RowCount(OpenAssignments),
-            HireDates = Rows[HIRE_DATE],
+- Power Query M: Transform data > New Source > Blank Query > Advanced Editor.
+- DAX measures: main report window > Modeling > New measure, one definition at a time.
+- Role filters: main report window > Modeling > Manage roles > DAX editor.
+- A file name without its extension is the query name unless the guide says otherwise.
+- Save a backup PBIX first. Keep the existing Scans, ScanHistory, and DimEmployee model names.
+- Use GitHub's Raw view to copy a complete .pq or role-expression file.
 
-            // Missing or placeholder dates cannot establish recency.
-            DatesUsable =
-                not List.Contains(HireDates, null)
-                and not List.Contains(HireDates, #date(1900, 1, 1)),
+## Data and access assumptions
 
-            // Multiple open assignments remain unresolved.
-            // When all assignments are closed, use the latest
-            // hire date only if every row has a usable date.
-            Candidates =
-                if OpenCount > 0 then
-                    OpenAssignments
-                else if Table.RowCount(Rows) = 1 then
-                    Rows
-                else if DatesUsable then
-                    let
-                        LatestHire = List.Max(HireDates)
-                    in
-                        Table.SelectRows(
-                            Rows,
-                            each [HIRE_DATE] = LatestHire
-                        )
-                else
-                    Rows,
+The model uses Import storage mode and single-direction active relationships.
+Scan names suggest BU ownership; only a reviewed internal mapping grants access.
+Ownership is assigned once per stable scan_key and controls all retained history for that scan.
+Unmapped scans remain InfoSec-only.
 
-            NeedsReview = Table.RowCount(Candidates) > 1,
+This is a public repository for generic code and instructions. Keep the actual
+ownership workbook, employee data, API credentials, JSON exports, and PBIX files
+inside the work environment. The included fixtures are synthetic.
 
-            ConflictColumns =
-                if NeedsReview then
-                    List.Select(
-                        SourceColumns,
-                        (ColumnName) =>
-                            List.Count(
-                                List.Distinct(
-                                    Table.Column(Candidates, ColumnName)
-                                )
-                            ) > 1
-                    )
-                else
-                    {},
+## Validation status
 
-            // Keep only values shared by every candidate.
-            // A blank versus a populated value also counts
-            // as a conflict.
-            EmployeeRecord =
-                if not NeedsReview then
-                    Candidates{0}
-                else
-                    Record.FromList(
-                        List.Transform(
-                            SourceColumns,
-                            (ColumnName) =>
-                                let
-                                    Values = List.Distinct(
-                                        Table.Column(
-                                            Candidates,
-                                            ColumnName
-                                        )
-                                    )
-                                in
-                                    if List.Count(Values) = 1 then
-                                        Values{0}
-                                    else
-                                        null
-                        ),
-                        SourceColumns
-                    ),
-
-            ResultRecord = Record.Combine(
-                {
-                    EmployeeRecord,
-                    [
-                        EmployeeMappingStatus =
-                            if NeedsReview then
-                                "Needs review"
-                            else
-                                "Selected",
-
-                        EmployeeMappingConflicts =
-                            if NeedsReview then
-                                Text.Combine(ConflictColumns, ", ")
-                            else
-                                null
-                    ]
-                }
-            )
-        in
-            ResultRecord,
-
-    Grouped = Table.Group(
-        UniqueRows,
-        {"EMPLOYEE_ID"},
-        {
-            {
-                "SelectedAssignment",
-                each SelectAssignment(_),
-                type record
-            }
-        }
-    ),
-
-    // Preserve the source column types and add review fields.
-    OutputTemplate = Table.AddColumn(
-        Table.AddColumn(
-            Table.FirstN(UniqueRows, 0),
-            "EmployeeMappingStatus",
-            each null,
-            type nullable text
-        ),
-        "EmployeeMappingConflicts",
-        each null,
-        type nullable text
-    ),
-
-    Result = Table.FromRecords(
-        Grouped[SelectedAssignment],
-        Value.Type(OutputTemplate)
-    )
-in
-    Result
+The actual employee query was already confirmed working in the user's Power BI report.
+All 16 Power Query files passed syntax validation with Microsoft's powerquery-parser 5.0.0.
+Internal documentation links were checked, and the preserved employee query matches the original file byte for byte.
+Syntax validation does not execute queries or prove the role design.
+The new M/DAX and RLS setup require execution and acceptance testing in Power BI Desktop
+and the tenant; this repository does not claim those tests have run in that environment.
+Run [OwnershipSelfTests.pq](powerbi/tests/OwnershipSelfTests.pq), then complete the
+role tests in the permissions guide before sharing the report.

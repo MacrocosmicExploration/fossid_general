@@ -1,0 +1,32 @@
+// EDIT EXISTING MEASURES in the main Power BI window, one definition at a time.
+// Legacy "Above 9" names are retained so existing visuals keep their bindings.
+// Change displayed titles to "CVSS 9.0 or higher".
+// Dependencies already built on Page 5:
+// [Vulnerability Occurrences], VulnerabilitySnapshot[VEX Status Key],
+// and the Scans -> VulnerabilityCoverage relationship.
+
+Occurrences CVSS Above 9 =
+CALCULATE(
+    [Vulnerability Occurrences],
+    KEEPFILTERS(VulnerabilitySnapshot[base_score] >= 9.0)
+)
+
+Above 9 Without VEX Status =
+CALCULATE(
+    [Occurrences CVSS Above 9],
+    KEEPFILTERS(VulnerabilitySnapshot[VEX Status Key] = "no_status")
+)
+
+Occurrences Above 9 Display =
+IF(
+    COUNTROWS(VulnerabilityCoverage) > 0,
+    COALESCE([Occurrences CVSS Above 9], 0),
+    BLANK()
+)
+
+Above 9 Without Status Display =
+IF(
+    COUNTROWS(VulnerabilityCoverage) > 0,
+    COALESCE([Above 9 Without VEX Status], 0),
+    BLANK()
+)

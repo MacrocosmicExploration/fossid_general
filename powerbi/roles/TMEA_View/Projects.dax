@@ -1,0 +1,2 @@
+ISBLANK([project_key])
+    || [project_key] IN VALUES(ScanSecurityScope[project_key])

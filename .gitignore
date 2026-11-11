@@ -1,0 +1,13 @@
+# Local production data and credentials never belong in this general repository.
+*.pbix
+*.xlsx
+*.xls
+*.csv
+.env
+.env.*
+!.env.example
+output/
+local-data/
+*.log
+*.jsonl
+.DS_Store

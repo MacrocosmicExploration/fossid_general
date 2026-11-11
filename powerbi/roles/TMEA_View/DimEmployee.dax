@@ -1,0 +1,2 @@
+ISBLANK([EMPLOYEE_ID])
+    || [EMPLOYEE_ID] IN VALUES(ScanSecurityScope[creator_username])

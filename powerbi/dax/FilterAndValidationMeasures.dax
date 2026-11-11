@@ -1,0 +1,54 @@
+// MAIN POWER BI WINDOW > MODELING > NEW MEASURE.
+// Copy ONE definition at a time. These are not role filters or Power Query M.
+// Counts respect report filters and RLS.
+
+Filter Current Scan Count =
+COALESCE(COUNTROWS(Scans), 0)
+
+// Counts unique scans across the selected history, not the sum of daily stocks.
+Filter Historical Scan Count =
+COALESCE(DISTINCTCOUNT(ScanHistory[scan_key]), 0)
+
+Unassigned Current Scans =
+CALCULATE(
+    [Filter Current Scan Count],
+    KEEPFILTERS(Scans[OwnershipStatus] = "Unassigned")
+)
+
+Unassigned Historical Scan Keys =
+CALCULATE(
+    [Filter Historical Scan Count],
+    KEEPFILTERS(ScanHistory[OwnershipStatus] = "Unassigned")
+)
+
+// Diagnostic card for a temporary validation page.
+Security Test Visible BUs =
+VAR VisibleBUs =
+    DISTINCT(
+        UNION(
+            SELECTCOLUMNS(Scans, "BU", Scans[ApprovedBU]),
+            SELECTCOLUMNS(ScanHistory, "BU", ScanHistory[ApprovedBU])
+        )
+    )
+RETURN
+    IF(
+        COUNTROWS(VisibleBUs) = 0,
+        "No scan data",
+        CONCATENATEX(
+            VisibleBUs,
+            COALESCE([BU], "Unassigned"),
+            ", ",
+            [BU],
+            ASC
+        )
+    )
+
+Security Test Finding Count =
+COALESCE(COUNTROWS(VulnerabilitySnapshot), 0)
+
+Security Test Coverage Scan Count =
+COALESCE(DISTINCTCOUNT(VulnerabilityCoverage[scan_key]), 0)
+
+// Shared pipeline timestamp. Use the measure, not a Date Hierarchy.
+Dashboard Extraction Finished UTC =
+MAX(RefreshInfo[extraction_finished_utc])
