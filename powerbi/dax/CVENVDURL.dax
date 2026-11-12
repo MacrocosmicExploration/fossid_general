@@ -1,0 +1,11 @@
+// Calculated column in VulnerabilitySnapshot, not a measure or Power Query expression.
+CVE NVD URL =
+VAR NormalizedCVE =
+    UPPER ( TRIM ( COALESCE ( VulnerabilitySnapshot[cve], "" ) ) )
+RETURN
+    IF (
+        LEFT ( NormalizedCVE, 4 ) = "CVE-"
+            && LEN ( NormalizedCVE ) > 4,
+        "https://nvd.nist.gov/vuln/detail/" & NormalizedCVE,
+        BLANK ()
+    )

@@ -141,6 +141,47 @@ Blank scores mean unavailable, not zero severity.
 Preserve the existing No status recorded category. Keep all VEX status lookup
 categories on the status chart, including currently unused ones.
 
+### Make each CVE a clickable NVD link
+
+The existing CVE text can open its NVD detail page. No Python changes, NVD API key,
+or additional visible column are needed.
+
+1. In Power BI Desktop's main window, select the **VulnerabilitySnapshot** table.
+   If you are in Power Query, use **Close & Apply** first.
+2. Select **New column** and paste the entire contents of
+   [CVENVDURL.dax](../powerbi/dax/CVENVDURL.dax).
+   This is a DAX calculated column, not a measure or a Power Query custom column.
+3. Select the new **CVE NVD URL** column. Under **Column tools**, use data type
+   **Text** and data category **Uncategorized** for this link-text method.
+4. Select the Page 5 vulnerability **table visual**. Keep
+   **VulnerabilitySnapshot[cve]** as its displayed CVE field.
+5. Open **Format visual > Visual > Cell elements**. For **Apply settings to**,
+   select the displayed **cve** column. Turn **Web URL** on; open its **fx**
+   dialog if needed.
+6. For **What field should we base this on?**, choose
+   **VulnerabilitySnapshot[CVE NVD URL]**. If prompted, use format style
+   **Field value** and summarization **First**. Each detail row must identify
+   one CVE. Select **OK**.
+7. Leave the URL helper out of the table's displayed columns. If you added it
+   temporarily, remove it from the visual while retaining it in the model.
+8. Open two different CVE links and verify that each NVD page has the matching
+   identifier. Test again in the published report.
+
+Alternative UI: in the visual's field list, open the displayed **cve** field's
+menu and choose **Conditional formatting > Web URL**, then select the URL helper.
+If Web URL is unavailable, confirm you selected the table visual and that the
+helper column's data category is **Uncategorized**.
+
+For example, `CVE-2021-44228` produces
+`https://nvd.nist.gov/vuln/detail/CVE-2021-44228`.
+The column trims whitespace and normalizes case. Blank values and values without
+the `CVE-` prefix get no link. It does not validate the full identifier or check
+whether NVD has published a record.
+
+Future imported rows receive links on model refresh. This opens public NVD
+information; it does not retrieve NVD scores into the model or change the
+organization's FossID VEX assessment.
+
 ### Correct the threshold to include exactly 9.0
 
 1. Open [CVSS9MeasureUpdates.dax](../powerbi/dax/CVSS9MeasureUpdates.dax).
@@ -240,6 +281,8 @@ Next: [03 — Group permissions](03_GROUP_PERMISSIONS.md).
 
 ## References
 
+- [Hyperlink text in Power BI tables](https://learn.microsoft.com/en-us/power-bi/create-reports/power-bi-hyperlinks-in-tables#format-link-text-as-a-hyperlink)
+- [Web URL conditional formatting](https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-conditional-table-formatting#format-as-web-urls)
 - [Slicer overview](https://learn.microsoft.com/en-us/power-bi/visuals/power-bi-visualization-slicers)
 - [Report bookmarks](https://learn.microsoft.com/en-us/power-bi/create-reports/desktop-bookmarks)
 - [Visual interactions](https://learn.microsoft.com/en-us/power-bi/create-reports/service-reports-visual-interactions)
