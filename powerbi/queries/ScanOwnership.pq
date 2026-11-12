@@ -1,5 +1,9 @@
 let
-    Source = OwnershipWorkbook{[Item = "ScanOwnership", Kind = "Table"]}[Data],
-    Result = fnValidateScanOwnership(Source, BusinessUnits[BU])
+    // Automatic classification on refresh. No workbook or per-scan approval.
+    Result = fnBuildScanOwnership(
+        ScansBase,
+        ScanHistoryBase,
+        BusinessUnits[BU]
+    )
 in
     Result

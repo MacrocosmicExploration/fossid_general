@@ -1,20 +1,34 @@
-# 03 — Group permissions and validation
+# 03 — User/group permissions and validation
 
 Complete [model setup](01_APPROVED_BU_AND_MODEL.md) before creating these roles.
 This is an Import-model design. These files configure Power BI; they do not alter
 FossID permissions or the API account's visibility.
 
+## Quick explanation: built-in identity, no custom user mapping
+
+Power BI already knows the signed-in Microsoft work account. In the service,
+Semantic model > Security lets you add a user's work email directly to a role.
+You can also assign an existing Microsoft Entra security group and manage its membership.
+
+Use TMEA_View, ADS_View, and InfoSec_All. You do not need an employee-ID-to-login table,
+USERPRINCIPALNAME lookup spreadsheet, or per-scan access list for this setup.
+GLOBAL_EMPLOYEE supplies report filters, not viewer authentication.
+
+For a small initial audience, assigning work emails directly is the quickest option.
+Use security groups when managing a larger or changing audience.
+
 ## 1. Understand the access model
 
 | Group example | RLS role | Scope |
 | --- | --- | --- |
-| SG-PBI-FossID-TMEA | TMEA_View | Approved TMEA scans and associated data |
-| SG-PBI-FossID-ADS | ADS_View | Approved ADS scans and associated data |
+| SG-PBI-FossID-TMEA | TMEA_View | Automatically classified TMEA scans and associated data |
+| SG-PBI-FossID-ADS | ADS_View | Automatically classified ADS scans and associated data |
 | SG-PBI-FossID-InfoSec | InfoSec_All | All imported data, including unassigned records |
 
 Use existing approved group names if available.
-InfoSec is an explicit group assignment, not a department-name substring rule.
-Creator attributes and scan-name prefixes do not grant access.
+InfoSec is an explicit user/group role assignment, not a department-name substring rule.
+Creator attributes do not grant viewer access. The scan_code prefix classifies the data,
+and the authenticated viewer's role determines whether that classification is visible.
 
 Each BU role has FIVE table filters:
 - Scans and ScanHistory restrict current and historical facts independently.
@@ -27,7 +41,7 @@ This is a creator/project metadata policy, not an HR-directory authorization sys
 Keep only the necessary employee attributes in the model.
 
 Unknown employees/projects may use the model's blank dimension member.
-The dimension expressions permit that placeholder so an approved scan is not lost merely
+The dimension expressions permit that placeholder so a classified scan is not lost merely
 because its employee is absent. Scan-level BU filters remain mandatory.
 
 ## 2. Create TMEA_View in Desktop
@@ -91,7 +105,7 @@ Use Model view to verify that the only loaded tables are the intended business
 tables, the minimized employee dimension, ScanSecurityScope, the sanitized run metadata,
 and static lookup/measure tables.
 
-- Raw GLOBAL_EMPLOYEE, base scans/history, ownership suggestions, and error-review queries
+- Raw GLOBAL_EMPLOYEE, base scans/history, classification diagnostics, and error-review queries
   must not be loaded. Hiding them is insufficient.
 - No disconnected table may hold unfiltered copies of projects, employee rows, findings,
   or stored all-BU inventory totals.
@@ -133,11 +147,11 @@ These separate tables reveal metadata leakage that a combined scan visual can hi
 7. Test InfoSec_All with a BU role: the intended result is full access.
 
 Expected behavior:
-- Each restricted role shows only its approved BU in scan/finding/history rows.
+- Each restricted role shows only its assigned BU in scan/finding/history rows.
 - Project and creator lists contain only associated records, plus a possible blank placeholder.
-- Restricted views exclude unassigned scans, even if their names begin with that BU.
+- Restricted views exclude unassigned scans with unknown or conflicting classification.
 - Historical-only scans remain available to the authorized BU.
-- An approved scan with an unmapped employee remains visible.
+- A classified scan with an unmapped employee remains visible.
 - Clearing slicers and pressing Reset does not broaden RLS.
 - Remove filters from every visual; RLS still applies.
 - Inspect enabled exports as well as visuals.
@@ -187,9 +201,9 @@ With no report filters, expected counts are:
 
 Check these deliberate edge cases:
 - demo:h1 is historical-only TMEA.
-- demo:a2 is approved TMEA with no matching employee and a null project.
-- demo:a3 has an ADS-looking name but approved TMEA ownership.
-- demo:u1 looks like TMEA but has no approval and remains InfoSec-only.
+- demo:a2 is classified TMEA with no matching employee and a null project.
+- demo:a3 is currently TMEA; its older ADS-looking historical name also follows current TMEA classification.
+- demo:u1 has an unrecognized prefix and remains InfoSec-only.
 - demo:orphan has no parent Scans row and must not appear in either BU role's findings.
 - Creator 000004 and project:shared are shared, but scans remain BU-restricted.
 - project:unused and employee 000006 are excluded from both BU roles.
@@ -201,9 +215,9 @@ inspection. A CVSS >=9 count across all findings is 5 for InfoSec, 2 for TMEA, a
 These expected results are acceptance criteria, not a claim that the DAX engine was
 executed by the repository author. Do not publish the fixture as the production dashboard.
 
-## 8. Create or reuse Microsoft Entra security groups
+## 8. Optional: create or reuse Microsoft Entra security groups
 
-Prefer approved existing groups with the correct membership.
+Skip this section when assigning users directly by work email. Otherwise prefer existing groups with the correct membership.
 If new groups are needed, ask the identity administrator to create the three groups
 from section 1. If you have the required tenant permissions:
 
@@ -220,23 +234,23 @@ from section 1. If you have the required tenant permissions:
 A Microsoft 365/Teams group is not interchangeable with an Entra security group for
 Power BI RLS membership. Keep InfoSec membership explicitly managed.
 
-## 9. Publish and connect groups to roles
+## 9. Publish and assign users or groups to roles
 
 1. In Desktop, Home > Publish.
 2. Select the approved organizational workspace, not My workspace.
 3. In the Power BI service, open that workspace.
 4. Find the SEMANTIC MODEL, not just the report.
 5. Select its ... menu > Security.
-6. Select TMEA_View, add the TMEA Entra security group, and Save.
-7. Repeat for ADS_View and InfoSec_All.
+6. Select TMEA_View, add each authorized user's work email OR the TMEA Entra security group, and Save.
+7. Repeat for ADS_View and InfoSec_All with their authorized accounts/groups.
 8. Use Test as role, then test actual non-editor viewer accounts.
 
 The role assignment controls rows; it does not itself give someone access to the report.
 
 Grant report access through one of these:
-- Preferred: publish/update a Power BI app and add the approved groups to its audience.
+- Preferred: publish/update a Power BI app and add the authorized users/groups to its audience.
   App audiences control which content appears; the RLS roles still control data.
-- Alternatively: Workspace > Manage access > add the group with Viewer permission.
+- Alternatively: Workspace > Manage access > add the user/group with Viewer permission.
   This grants workspace viewing, so use an app when consumers should see only selected content.
 
 Restricted consumers must not receive workspace Admin, Member, or Contributor access,
@@ -263,23 +277,24 @@ InfoSec_All sees all imported rows. Membership is the authorization source.
 
 For refresh:
 - Run the FossID pipeline first, then refresh the semantic model.
-- The service needs access to the existing output/history sources, Snowflake, AND
-  the ownership workbook. A file on the work laptop requires an appropriate running
-  gateway and source configuration for scheduled service refresh.
+- The service needs access to the existing output/history sources and Snowflake.
+  There is no ownership workbook dependency. Output/history files on the work laptop
+  still require an appropriate running gateway and source configuration for scheduled refresh.
 - Use company-approved storage and credentials. A locally synced path is not automatically
   a cloud-accessible source.
-- Ownership changes only take effect in this Import model after a successful refresh.
-- A failed refresh leaves the previously loaded mapping/data in service. For an urgent
-  access revocation, remove report/group access through the administrators rather than
-  waiting for a broken data refresh.
-- Review unassigned scans after each refresh; never auto-approve a naming prefix.
+- BU classification runs automatically during model refresh after pipeline extraction.
+  These queries do not themselves schedule the pipeline or trigger the Power BI refresh.
+- Corrected names/BU changes take effect after a successful refresh.
+- A failed refresh leaves the previously loaded classification/data in service. For an urgent
+  access revocation, remove report/role/group access rather than waiting for a broken refresh.
+- Use the unassigned-scan indicators to identify naming exceptions; normal recognized scans
+  require no manual assignment.
 
 When adding another BU:
-1. Register its code in the internal workbook.
-2. Review and populate ownership mappings.
-3. Create/reuse its Entra security group.
-4. Copy a BU role, change its three ApprovedBU rules, and retain the metadata rules.
-5. Refresh/publish, assign the group, and repeat the separation tests.
+1. Add its prefix to Codes in the BusinessUnits query.
+2. Copy a BU role, change its three ApprovedBU rules, and retain the metadata rules.
+3. Refresh/publish and assign authorized work emails or its Entra security group.
+4. Repeat the separation tests. Subsequent scans classify automatically.
 
 No Python code changes are needed just to add another BU.
 

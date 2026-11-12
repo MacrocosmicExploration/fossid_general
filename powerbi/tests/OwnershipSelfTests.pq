@@ -1,5 +1,5 @@
 let
-    // Synthetic data only. Run after creating the three function queries.
+    // Synthetic data only. Run after creating all four function queries.
     BUs = {"TMEA", "ADS"},
     MapType = type table [scan_key = nullable text, ApprovedBU = nullable text],
     Scans = #table(type table [scan_key = text, scan_code = text], {
@@ -26,13 +26,13 @@ let
         Check("Missing mapping remains unassigned", () =>
             let T = fnApplyScanOwnership(Scans, Good)
             in T{1}[ApprovedBU] = null and T{1}[OwnershipStatus] = "Unassigned"),
-        Check("Name prefix does not grant access", () =>
+        Check("Join uses the resolved BU for historical rows", () =>
             fnApplyScanOwnership(Scans, Good){0}[ApprovedBU] = "TMEA"),
         Check("Left join retains both scans", () =>
             Table.RowCount(fnApplyScanOwnership(Scans, Good)) = 2),
         Check("Empty mapping is allowed", () =>
             Table.RowCount(fnValidateScanOwnership(#table(MapType, {}), BUs)) = 0),
-        Check("Completely empty Excel row is ignored", () =>
+        Check("Empty input row is ignored by validator", () =>
             Table.RowCount(fnValidateScanOwnership(#table(MapType, {{null, null}}), BUs)) = 0),
         Check("Blank BU is not approval", () =>
             fnValidateScanOwnership(#table(MapType, {{"demo:1", " "}}), BUs){0}[ApprovedBU] = null),
@@ -81,6 +81,61 @@ let
         Check("Empty scan inventory retains output schema", () =>
             let T = fnApplyScanOwnership(Table.FirstN(Scans, 0), Good)
             in Table.RowCount(T) = 0 and Table.HasColumns(T, {"ApprovedBU", "OwnershipStatus"}))
+,
+        Check("New current scan automatically classified", () =>
+            let T = fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_example"}}),
+                #table({"scan_key", "scan_code"}, {}), BUs)
+            in T{0}[ApprovedBU] = "TMEA"),
+        Check("Prefix normalization", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", " ads_example "}}),
+                #table({"scan_key", "scan_code"}, {}), BUs){0}[ApprovedBU] = "ADS"),
+        Check("Unknown prefix remains unassigned", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "OTHER_example"}}),
+                #table({"scan_key", "scan_code"}, {}), BUs){0}[ApprovedBU] = null),
+        Check("Missing delimiter remains unassigned", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA"}}),
+                #table({"scan_key", "scan_code"}, {}), BUs){0}[ApprovedBU] = null),
+        Check("Empty suffix remains unassigned", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_"}}),
+                #table({"scan_key", "scan_code"}, {}), BUs){0}[ApprovedBU] = null),
+        Check("Prefix match is exact", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEAX_example"}}),
+                #table({"scan_key", "scan_code"}, {}), BUs){0}[ApprovedBU] = null),
+        Check("Current prefix governs retained history", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "ADS_new"}}),
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_old"}}), BUs){0}[ApprovedBU] = "ADS"),
+        Check("Unrecognized current prefix does not fall back to old BU", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "UNKNOWN_now"}}),
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_old"}}), BUs){0}[ApprovedBU] = null),
+        Check("Consistent history-only scan is assigned automatically", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {}),
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_old"}, {"auto:1", "TMEA_new"}}), BUs){0}[ApprovedBU] = "TMEA"),
+        Check("Conflicting history-only prefixes remain unassigned", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {}),
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_old"}, {"auto:1", "ADS_new"}}), BUs){0}[ApprovedBU] = null),
+        Check("Incomplete history-only naming remains unassigned", () =>
+            fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {}),
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_old"}, {"auto:1", null}}), BUs){0}[ApprovedBU] = null),
+        Check("Duplicate current records are rejected", () =>
+            ExpectError(() => Table.RowCount(fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {{"auto:1", "TMEA_a"}, {"auto:1", "ADS_b"}}),
+                #table({"scan_key", "scan_code"}, {}), BUs)))),
+        Check("Empty automatic inventory retains schema", () =>
+            let T = fnBuildScanOwnership(
+                #table({"scan_key", "scan_code"}, {}),
+                #table({"scan_key", "scan_code"}, {}), BUs)
+            in Table.RowCount(T) = 0 and Table.HasColumns(T, {"scan_key", "ApprovedBU"}))
     },
     Result = Table.FromRecords(
         Cases, type table [Test = text, Passed = logical, Detail = text]

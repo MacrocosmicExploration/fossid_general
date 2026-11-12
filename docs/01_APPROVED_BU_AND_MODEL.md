@@ -1,6 +1,28 @@
-# 01 — ApprovedBU and model setup
+# 01 — Automatic BU classification and model setup
 
-Follow this guide in order. No Python pipeline changes are required.
+This guide now uses AUTOMATIC BU classification from scan_code. The previous Excel
+per-scan approval workflow has been removed. No Python pipeline changes are required.
+
+## Already at the old Step 5? Use this short migration
+
+You do not need to copy scan keys or maintain an Excel mapping.
+
+1. Keep your existing ScansBase and ScanHistoryBase queries.
+2. Replace BusinessUnits with the updated [BusinessUnits.pq](../powerbi/queries/BusinessUnits.pq).
+3. Create one new blank function query named fnBuildScanOwnership and paste
+   [fnBuildScanOwnership.pq](../powerbi/functions/fnBuildScanOwnership.pq).
+   It uses the fnValidateScanOwnership query you already created.
+4. Replace ScanOwnership with [ScanOwnership.pq](../powerbi/queries/ScanOwnership.pq).
+5. Replace OwnershipCandidates with [OwnershipCandidates.pq](../powerbi/queries/OwnershipCandidates.pq).
+6. After those replacements, delete the now-unused OwnershipWorkbook and
+   pOwnershipWorkbookPath QUERIES. The Excel file is no longer an input.
+7. Refresh the previews, then continue at Step 6 below if you have not done it yet.
+8. If using the optional self-test query, replace it with the updated file.
+
+Keep the existing role expressions, field names, employee query, and relationships.
+ApprovedBU is retained as a technical column name for compatibility; it now means
+the automatically recognized BU, not a human approval. OwnershipStatus = Approved
+is likewise a legacy label for successful automatic classification.
 The existing report already has Projects, Scans, ScanSnapshot, ScanHistory,
 HistoryRuns, RefreshInfo, DimEmployee, VulnerabilitySnapshot, VulnerabilityCoverage,
 and VEXStatus.
@@ -14,38 +36,41 @@ and VEXStatus.
    before applying these role expressions. Do not assume the supplied RLS expressions work in DirectQuery.
 4. Keep the original model-table names. Measures and relationships refer to them.
 
-## 2. Create the internal ownership workbook
+## 2. Define recognized BU prefixes once
 
-ApprovedBU means a scan's reviewed business-unit ownership. It is independent of
-the creator's department and independent of the scan's editable name.
+The pipeline's scan_code contains names such as TMEA_example or ADS_example.
+scan_key is the stable source/scan ID used for joins; do not parse it for a BU.
 
-1. Open a new workbook in Excel.
-2. Save it in an approved internal location as ScanOwnership.xlsx.
-   Example local path: C:\FossIDDashboard\Security\ScanOwnership.xlsx.
-   The actual file must remain outside this Git repository.
-3. Create a worksheet named BusinessUnits.
-4. In A1 enter BU. In A2 enter TMEA; in A3 enter ADS.
-   These are examples for the initial rollout; include only actual recognized BU codes.
-5. Select those cells, press Ctrl+T, and check My table has headers.
-6. Under Table Design > Table Name, name the Excel table BusinessUnits.
-7. Create a second worksheet named Ownership.
-8. Put scan_key in A1 and ApprovedBU in B1.
-9. Format both columns as Text.
-10. Select A1:B2, press Ctrl+T, check My table has headers, and name the
-    Excel table ScanOwnership. Leave the first data row empty initially.
-11. Save and close Excel.
+[BusinessUnits.pq](../powerbi/queries/BusinessUnits.pq) contains a small list:
+~~~powerquery
+Codes = {"TMEA", "ADS"}
+~~~
 
-These must be Excel TABLE names, not just worksheet names.
-Only authorized ownership maintainers should be able to edit the workbook.
-Changing a mapping changes who can see the scan, including its retained history.
+This is configuration, not a list of scans or users. Add other recognized BU codes
+when those BUs are onboarded. Every new scan with a recognized prefix is classified
+automatically on refresh.
 
-One scan_key can have one ApprovedBU in this initial design. A scan name, employee ID,
-or project name is not a substitute for scan_key. If genuine shared scan ownership is
-needed later, design an explicit access bridge; do not add duplicate keys to this workbook.
+| scan_code | Automatic ApprovedBU |
+| --- | --- |
+| TMEA_example_1 | TMEA |
+| ADS_example_2 | ADS |
+| tmea_example_3 | TMEA |
+| OTHER_example | null / Unassigned |
+| example_without_known_prefix | null / Unassigned |
+| TMEA (no underscore and description) | null / Unassigned |
 
-The workbook may retain keys for scans absent from the current inventory.
-Blank ApprovedBU means not approved; it never means unrestricted access.
-New scans remain unassigned until reviewed.
+The prefix before the first underscore must match a registered BU exactly.
+Leading/trailing whitespace and casing are normalized. Missing or unrecognized
+prefixes remain InfoSec-only once the RLS roles are in place.
+
+The naming convention is the ownership signal in this design. A wrong but recognized
+prefix can classify a scan into the wrong BU; Power BI cannot discover the intended
+owner from that text alone. Correct scan naming in FossID matters. A trustworthy
+FossID owning-group attribute could replace this signal later if it becomes available.
+
+User access is separate: Power BI identifies the signed-in work account and applies
+the role assigned to that user or their security group. No employee-to-login lookup
+or per-scan approval is needed.
 
 ## 3. Preserve the existing source queries without breaking the model
 
@@ -67,64 +92,51 @@ pre-ownership versions first. Do not connect either base query to ScanSecuritySc
 
 ## 4. Add the supporting queries in this exact order
 
-For each row below:
-
+For each row:
 1. Home > New Source > Blank Query.
-2. Rename it to the exact query name shown.
-3. Open Advanced Editor, replace its entire contents with the linked file, then Done.
+2. Rename it exactly as shown.
+3. Advanced Editor > replace the entire contents with the linked file > Done.
 4. Do not include Markdown fences or a leading equals sign.
-5. Set Enable load as shown. Leave source refresh enabled.
+5. Turn Enable load OFF for these helpers. Leave source refresh enabled.
 
-| Order | Query name | File to paste | Enable load |
-| --- | --- | --- | --- |
-| 1 | pOwnershipWorkbookPath | [pOwnershipWorkbookPath.pq](../powerbi/queries/pOwnershipWorkbookPath.pq) | Off |
-| 2 | OwnershipWorkbook | [OwnershipWorkbook.pq](../powerbi/queries/OwnershipWorkbook.pq) | Off |
-| 3 | BusinessUnits | [BusinessUnits.pq](../powerbi/queries/BusinessUnits.pq) | Off |
-| 4 | fnValidateScanOwnership | [fnValidateScanOwnership.pq](../powerbi/functions/fnValidateScanOwnership.pq) | Off/function |
-| 5 | ScanOwnership | [ScanOwnership.pq](../powerbi/queries/ScanOwnership.pq) | Off |
-| 6 | fnApplyScanOwnership | [fnApplyScanOwnership.pq](../powerbi/functions/fnApplyScanOwnership.pq) | Off/function |
-| 7 | fnWithExecutionStatus | [fnWithExecutionStatus.pq](../powerbi/functions/fnWithExecutionStatus.pq) | Off/function |
-| 8 | OwnershipCandidates | [OwnershipCandidates.pq](../powerbi/queries/OwnershipCandidates.pq) | Off |
+| Order | Query name | File to paste |
+| --- | --- | --- |
+| 1 | BusinessUnits | [BusinessUnits.pq](../powerbi/queries/BusinessUnits.pq) |
+| 2 | fnValidateScanOwnership | [fnValidateScanOwnership.pq](../powerbi/functions/fnValidateScanOwnership.pq) |
+| 3 | fnBuildScanOwnership | [fnBuildScanOwnership.pq](../powerbi/functions/fnBuildScanOwnership.pq) |
+| 4 | ScanOwnership | [ScanOwnership.pq](../powerbi/queries/ScanOwnership.pq) |
+| 5 | fnApplyScanOwnership | [fnApplyScanOwnership.pq](../powerbi/functions/fnApplyScanOwnership.pq) |
+| 6 | fnWithExecutionStatus | [fnWithExecutionStatus.pq](../powerbi/functions/fnWithExecutionStatus.pq) |
+| 7 | OwnershipCandidates (optional diagnostics) | [OwnershipCandidates.pq](../powerbi/queries/OwnershipCandidates.pq) |
 
-Edit the quoted path in pOwnershipWorkbookPath to match the real workbook.
-It is a text-valued query, so a small text preview is expected.
-Function queries display a function icon/input form; do not click Invoke to create another query.
+Function queries display a function icon/input form; do not click Invoke to create
+another query. ScanOwnership now builds its rows automatically from the base scans.
+The validation function checks its generated keys and BU codes; it does not request approval.
 
-If Power BI asks for privacy levels, use the company-approved settings for these internal
-sources, commonly Organizational for an approved organizational boundary.
-Do not disable privacy checks merely to bypass a Formula.Firewall error.
+## 5. Check automatic classification once
 
-## 5. Review ownership suggestions and populate the workbook
+1. Open ScanOwnership and refresh its preview.
+2. Confirm a few known TMEA and ADS examples have the expected ApprovedBU.
+3. Optionally open OwnershipCandidates to see scan codes and BUAssignmentSource.
+4. Continue to Step 6. There is no Excel copy/paste or per-scan assignment step.
 
-OwnershipCandidates includes scans from today's inventory AND historical snapshots.
-It compares the prefix before the first underscore with BusinessUnits.
+For normal daily operation:
+- A new TMEA_... scan is automatically TMEA at the next successful data refresh.
+- A new ADS_... scan is automatically ADS.
+- Unknown prefixes remain Unassigned and visible only to InfoSec.
+- Fix incorrectly named current scans in FossID, then extract and refresh again.
 
-Its SuggestedBU is only a suggestion. The output also includes all observed scan codes
-for that key, so a renamed scan or conflicting names can be reviewed.
+Historical behavior:
+- If a scan still exists in current ScansBase, its CURRENT scan_code determines access
+  to that scan and all retained history. An unrecognized current name does not fall back
+  to an old recognized prefix.
+- For a historical-only scan, all retained names must resolve to the same recognized BU.
+  Conflicting or incomplete prefixes remain Unassigned instead of guessing.
+- The diagnostic query explains these exceptions. It is not an approval queue.
 
-1. Open OwnershipCandidates and refresh its preview.
-2. Review each scan with its owner/administrator using FossID.
-3. Copy each approved scan_key into the Excel ScanOwnership table and enter its approved BU.
-   You can copy preview cells for a small inventory; do not assume the first 1,000 preview
-   rows are the complete inventory.
-4. Leave uncertain ownership blank. Do not copy SuggestedBU wholesale into ApprovedBU.
-5. Save and close the workbook.
-6. Refresh the ScanOwnership and OwnershipCandidates previews.
-
-For a larger inventory, use a temporary local export:
-- Enable load for OwnershipCandidates temporarily.
-- Close & Apply, open Table view, and use Copy table.
-- Paste into an internal Excel review worksheet, preserving scan_key as Text.
-- Approve the mapping into the separate ScanOwnership Excel table.
-- Immediately turn Enable load back OFF for OwnershipCandidates before publishing.
-- Check the copied row count against the table count; do not use an incomplete preview/export.
-
-The approved workbook is an independent input, not a Power Query reference back to Scans.
-This avoids a circular dependency.
-
-Validation deliberately stops refresh for duplicate keys, case-only duplicate keys,
-missing keys paired with a BU, unregistered BU codes, and numeric scan keys.
-Completely empty Excel entry rows are ignored. A blank ApprovedBU is allowed and remains unassigned.
+This is current classification for access control, not a reconstruction of historical
+BU ownership. A valid-prefix rename can change access after the next successful refresh.
+Restrict who can rename scans according to the organization's intended ownership process.
 
 ## 6. Replace the two existing model queries
 
@@ -137,7 +149,7 @@ Do not create new tables called Scans2 or ScanHistory2.
 5. Keep Enable load ON for both.
 
 Scans now contains:
-- ApprovedBU: reviewed BU code or null.
+- ApprovedBU: automatically recognized BU code or null.
 - OwnershipStatus: Approved or Unassigned.
 - ExecutionStatusFilter: normalized current execution status or UNKNOWN.
 
@@ -145,7 +157,7 @@ ScanHistory contains ApprovedBU and OwnershipStatus on every daily observation.
 It preserves all historical rows. Ownership joins must not multiply or remove rows.
 The current status merge rejects multiple current snapshots for the same scan.
 
-The current approved BU is applied to all historical rows of the scan. This is an
+The automatically resolved BU is applied to all historical rows of the scan. This is an
 access policy; it does not claim to reconstruct historical BU ownership.
 
 ## 7. Add the security scope and sanitize run metadata
@@ -188,7 +200,7 @@ Do not discard the review flags. Blank disputed values mean unresolved attributi
 Disable Enable load for:
 - GLOBAL_EMPLOYEE and any raw employee copies
 - ScansBase, ScanHistoryBase, FossIDBundle, HistoryBundles
-- OwnershipWorkbook, BusinessUnits, ScanOwnership, OwnershipCandidates
+- BusinessUnits, ScanOwnership, OwnershipCandidates
 - EmployeeDuplicateCheck, EmployeeAssignmentReview, Errors in DimEmployee,
   and any other temporary diagnostic/staging queries
 
@@ -225,7 +237,7 @@ not to their department as of the scan date. Project/scan history still comes fr
 1. In Power Query, create a blank query named OwnershipSelfTests.
 2. Paste [OwnershipSelfTests.pq](../powerbi/tests/OwnershipSelfTests.pq).
 3. Refresh the preview.
-4. Expect 18 rows with Passed = true.
+4. Expect 31 rows with Passed = true.
 5. If any test fails, inspect Detail before continuing.
 6. Keep Enable load OFF for this test query.
 
@@ -252,6 +264,5 @@ Then continue with [02 — Page filters](02_PAGE_FILTERS.md).
 
 ## References
 
-- [Excel.Workbook](https://learn.microsoft.com/en-us/powerquery-m/excel-workbook)
 - [Table.NestedJoin](https://learn.microsoft.com/en-us/powerquery-m/table-nestedjoin)
 - [VALUES: DirectQuery RLS limitation](https://learn.microsoft.com/en-us/dax/values-function-dax)

@@ -1,6 +1,6 @@
 # FossID Power BI finishing guide
 
-Start with [01 — ApprovedBU and model setup](docs/01_APPROVED_BU_AND_MODEL.md).
+Start with [01 — Automatic BU and model setup](docs/01_APPROVED_BU_AND_MODEL.md).
 Then follow [02 — Page filters](docs/02_PAGE_FILTERS.md) and
 [03 — Group permissions and validation](docs/03_GROUP_PERMISSIONS.md).
 
@@ -12,7 +12,7 @@ modify the FossID API pipeline.
 
 | Location | Purpose |
 | --- | --- |
-| [Model setup](docs/01_APPROVED_BU_AND_MODEL.md) | Internal ownership workbook, exact query creation order, ApprovedBU, execution status, metadata cleanup, and relationships |
+| [Model setup](docs/01_APPROVED_BU_AND_MODEL.md) | Automatic scan-code BU classification, migration from the old workbook approach, ApprovedBU, execution status, metadata cleanup, and relationships |
 | [Page filters](docs/02_PAGE_FILTERS.md) | Exact fields and settings for all five pages, popup bookmarks, and CVSS 9.0-or-higher correction |
 | [Permissions](docs/03_GROUP_PERMISSIONS.md) | Table-by-table role expressions, Entra groups, publishing, and validation |
 | [Queries](powerbi/queries) | Complete Power Query M queries |
@@ -34,18 +34,24 @@ modify the FossID API pipeline.
 ## Data and access assumptions
 
 The model uses Import storage mode and single-direction active relationships.
-Scan names suggest BU ownership; only a reviewed internal mapping grants access.
-Ownership is assigned once per stable scan_key and controls all retained history for that scan.
-Unmapped scans remain InfoSec-only.
+Recognized scan-code prefixes automatically determine BU ownership on refresh.
+Power BI work-account/Entra role membership determines which BU a viewer may see.
+No workbook and no per-scan assignments are required.
+Current scan codes govern retained history; historical-only scans need consistent recognized prefixes.
+Unknown or conflicting classifications remain InfoSec-only.
+A mistaken but recognized prefix can misroute data, so naming accuracy is part of this access policy.
 
 This is a public repository for generic code and instructions. Keep the actual
-ownership workbook, employee data, API credentials, JSON exports, and PBIX files
+employee data, API credentials, JSON exports, and PBIX files
 inside the work environment. The included fixtures are synthetic.
 
 ## Validation status
 
+If you began the previous Excel workflow, use the short migration at the top of guide 01.
+The existing employee mapping and role expressions can be retained.
+
 The actual employee query was already confirmed working in the user's Power BI report.
-All 16 Power Query files passed syntax validation with Microsoft's powerquery-parser 5.0.0.
+All 15 Power Query files passed syntax validation with Microsoft's powerquery-parser 5.0.0.
 Internal documentation links were checked, and the preserved employee query matches the original file byte for byte.
 Syntax validation does not execute queries or prove the role design.
 The new M/DAX and RLS setup require execution and acceptance testing in Power BI Desktop
